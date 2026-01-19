@@ -1,0 +1,32 @@
+
+# playbooks/initialisation.yml
+---
+- name: Configuration de base du serveur hôte
+  hosts: all            # ← cible l'hôte 'ubuntu' défini dans l'inventaire
+  become: true
+  gather_facts: true
+
+  pre_tasks:
+    - name: Vérifier OS/version
+      ansible.builtin.assert:
+        that:
+          - ansible_distribution == "Ubuntu"
+          - ansible_distribution_version is version('24.04', '==')
+        fail_msg: "Play prévu pour Ubuntu 24.04 LTS (Noble)."
+        success_msg: "Ubuntu 24.04 LTS détecté."
+
+  roles:
+    - role: ssh_config
+    - role: network_config
+    - role: sourcelist_config
+    - role: system_update
+
+  handlers:
+    - name: restart ssh
+      ansible.builtin.systemd:
+        name: ssh
+        state: restarted
+        daemon_reload: true
+
+    - name: apply netplan
+      ansible.builtin.command: netplan apply

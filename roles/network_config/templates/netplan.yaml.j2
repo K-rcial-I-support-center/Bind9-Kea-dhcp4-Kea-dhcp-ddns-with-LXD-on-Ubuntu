@@ -1,0 +1,29 @@
+
+network:
+  version: 2
+  ethernets:
+    ens33:
+      dhcp4: false
+    ens37:
+      dhcp4: false
+
+  bridges:
+    mgmtbr0:
+      interfaces: [ens33]
+      addresses: [10.0.0.30/24]
+      routes:
+        - to: default
+          via: 10.0.0.1
+      nameservers:
+        addresses: [10.0.0.1, 8.8.8.8]
+      dhcp4: false
+      parameters:
+        stp: false
+        forward-delay: 0
+
+    br0:
+      interfaces: [ens37]
+      dhcp4: true
+      parameters:
+        stp: false
+        forward-delay: 0

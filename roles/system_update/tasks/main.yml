@@ -1,0 +1,11 @@
+# roles/system_update/tasks/main.yml
+- name: Mise à jour des paquets (dist-upgrade)
+  ansible.builtin.apt:
+    upgrade: dist
+    update_cache: true
+  register: apt_upgrade
+
+- name: Suppression des paquets inutiles (autoremove)
+  ansible.builtin.apt:
+    autoremove: true
+  when: apt_upgrade is succeeded

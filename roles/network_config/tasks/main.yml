@@ -1,0 +1,48 @@
+
+---
+# 1) Désactiver cloud-init (pour éviter qu’il réécrive la config réseau)
+- name: Désactiver cloud-init (flag global)
+  file:
+    path: /etc/cloud/cloud-init.disabled
+    state: touch
+    owner: root
+    group: root
+    mode: '0644'
+
+# 2) Sauvegarder le fichier Netplan existant si présent (50-cloud-init.yaml ou autre)
+- name: Sauvegarder les fichiers Netplan existants s'ils existent
+  shell: |
+    set -e
+    for f in /etc/netplan/*.yaml; do
+      [ -f "$f" ] && cp -n "$f" "$f.bak"
+    done
+  args:
+    executable: /bin/bash
+  changed_when: false
+
+# 3) Supprimer l’ancien fichier généré par cloud-init
+- name: Supprimer le fichier Netplan généré par cloud-init
+  file:
+    path: /etc/netplan/50-cloud-init.yaml
+    state: absent
+
+# 4) Déployer notre fichier Netplan statique
+- name: Déployer Netplan statique
+  template:
+    src: netplan.yaml.j2
+    dest: /etc/netplan/01-netcfg.yaml
+    owner: root
+    group: root
+    mode: '0600'
+  notify: apply netplan
+
+# 5) Vérifier la syntaxe Netplan
+- name: Vérifier la syntaxe Netplan
+  command: netplan generate
+  register: netplan_generate
+  changed_when: false
+
+# 6) Afficher la sortie de validation
+- name: Sortie validation netplan
+  debug:
+    var: netplan_generate.stderr

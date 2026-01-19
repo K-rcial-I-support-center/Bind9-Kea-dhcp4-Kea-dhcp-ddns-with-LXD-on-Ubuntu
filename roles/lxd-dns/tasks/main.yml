@@ -1,0 +1,518 @@
+---
+# =========================
+# Création des volumes persistants sur l’hôte
+# =========================
+
+- name: Créer les répertoires persistants sur l'hôte (Bind9)
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - "{{ bind_host_root }}"
+    - "{{ bind_host_etc }}"
+    - "{{ bind_host_cache }}"
+    - "{{ bind_host_lib }}"
+    - "{{ bind_host_logs }}"
+  become: true
+
+# =========================
+# Déploiement des fichiers Bind9 sur l'hote
+# =========================
+
+- name: Déployer ddns.key
+  ansible.builtin.template:
+    src: ddns.key.j2
+    dest: "{{ bind_host_etc }}/ddns.key"
+
+- name: Déployer named.conf
+  ansible.builtin.template:
+    src: named.conf.j2
+    dest: "{{ bind_host_etc }}/named.conf"
+
+- name: Déployer named.conf.local
+  ansible.builtin.template:
+    src: named.conf.local.j2
+    dest: "{{ bind_host_etc }}/named.conf.local"
+
+- name: Déployer named.conf.options
+  ansible.builtin.template:
+    src: named.conf.options.j2
+    dest: "{{ bind_host_etc }}/named.conf.options"
+
+- name: Déployer zone localhost.db
+  ansible.builtin.template:
+    src: localhost.db.j2
+    dest: "{{ bind_host_cache }}/localhost.db"
+
+- name: Déployer zone localhost.rev
+  ansible.builtin.template:
+    src: localhost.rev.j2
+    dest: "{{ bind_host_cache }}/localhost.rev"
+
+- name: Déployer zone shq.internal
+  ansible.builtin.template:
+    src: shq.internal.db.j2
+    dest: "{{ bind_host_cache }}/shq.internal.db"
+
+- name: Déployer zone inverse 192.168.10.rev
+  ansible.builtin.template:
+    src: 192.168.10.rev.j2
+    dest: "{{ bind_host_cache }}/192.168.10.rev"
+
+# =========================
+# Vérification du remote LXD ubuntu:
+# =========================
+
+- name: Vérifier si le remote ubuntu est configuré
+  ansible.builtin.command: /snap/bin/lxc remote list
+  register: lxc_remotes
+  changed_when: false
+  become: true
+
+- name: Ajouter le remote ubuntu si absent
+  ansible.builtin.command: >
+    /snap/bin/lxc remote add ubuntu https://images.lxd.canonical.com --protocol simplestreams
+  when: "'ubuntu' not in lxc_remotes.stdout"
+  become: true
+
+
+# ==============================================#
+# Création et configuration du conteneur LXD    #
+# ==============================================#
+
+# =========================
+# PROFIL MANAGEMENT (eth0 -> mgmtbr0)
+# =========================
+
+- name: Créer un profil LXD mgmtbr0
+  ansible.builtin.command: /snap/bin/lxc profile create mgmtbr0
+  register: mgmt_profile
+  failed_when: false
+  changed_when: "'created' in mgmt_profile.stdout"
+  become: true
+
+- name: Ajouter interface eth0 -> mgmtbr0
+  ansible.builtin.command: >
+    /snap/bin/lxc profile device add mgmtbr0 eth0 nic nictype=bridged parent=mgmtbr0
+  register: mgmt_iface
+  failed_when: false
+  changed_when: "'Device added' in mgmt_iface.stdout"
+  become: true
+
+- name: Ajouter disque root au profil mgmtbr0
+  ansible.builtin.command: >
+    /snap/bin/lxc profile device add mgmtbr0 root disk path=/ pool=default
+  failed_when: false
+  become: true
+
+
+# =========================
+# PROFIL LAN (eth1 -> br0)
+# =========================
+
+- name: Créer un profil LXD br0
+  ansible.builtin.command: /snap/bin/lxc profile create br0
+  register: br0_profile
+  failed_when: false
+  changed_when: "'created' in br0_profile.stdout"
+  become: true
+
+- name: Ajouter interface eth1 -> br0 (LAN)
+  ansible.builtin.command: >
+    /snap/bin/lxc profile device add br0 eth1 nic nictype=bridged parent=br0
+  register: br0_iface
+  failed_when: false
+  changed_when: "'Device added' in br0_iface.stdout"
+  become: true
+
+- name: Ajouter disque root au profil br0
+  ansible.builtin.command: >
+    /snap/bin/lxc profile device add br0 root disk path=/ pool=default
+  failed_when: false
+  become: true
+
+
+# =========================
+# GESTION DU CONTENEUR DNS
+# =========================
+
+- name: Vérifier présence du conteneur
+  ansible.builtin.command: /snap/bin/lxc info "{{ lxd_dns_name }}"
+  register: lxc_info
+  changed_when: false
+  failed_when: false
+  become: true
+
+- name: Supprimer le conteneur s'il existe déjà
+  ansible.builtin.command: /snap/bin/lxc delete "{{ lxd_dns_name }}" --force
+  when: lxc_info.rc == 0
+  become: true
+
+- name: Créer le conteneur DNS avec profils mgmtbr0 + br0
+  ansible.builtin.command: >
+    /snap/bin/lxc launch {{ lxd_dns_release | default('ubuntu:24.04') }}
+    {{ lxd_dns_name }} -p mgmtbr0 -p br0 --quiet
+  args:
+    creates: "/var/snap/lxd/common/lxd/containers/{{ lxd_dns_name }}"
+  async: 30
+  poll: 0
+  become: true
+
+- name: Attendre que le conteneur soit démarré
+  ansible.builtin.command: >
+    /snap/bin/lxc info {{ lxd_dns_name }}
+  register: lxc_info
+  retries: 20
+  delay: 3
+  until: "'RUNNING' in lxc_info.stdout"
+  changed_when: false
+  become: true
+
+# Désactiver cloud-init AVANT apt/netplan
+- name: Désactiver cloud-init dans le conteneur
+  ansible.builtin.command: >
+    /snap/bin/lxc exec {{ lxd_dns_name }} -- bash -lc "touch /etc/cloud/cloud-init.disabled"
+  become: true
+
+- name: Supprimer le netplan cloud-init par défaut
+  ansible.builtin.command: >
+    /snap/bin/lxc exec {{ lxd_dns_name }} -- bash -lc "rm -f /etc/netplan/50-cloud-init.yaml"
+  become: true
+
+- name: Pause pour attribution IP
+  ansible.builtin.command: sleep 5
+  changed_when: false
+  become: true
+
+
+# =========================
+# DEPLOIEMENT DU NETPLAN
+# =========================
+
+- name: Générer le Netplan localement
+  ansible.builtin.template:
+    src: netplan-static.yaml.j2
+    dest: /tmp/01-netcfg.yaml
+    owner: root
+    group: root
+    mode: '0600'
+  become: true
+
+- name: Copier le Netplan dans le conteneur
+  ansible.builtin.command: >
+    /snap/bin/lxc file push /tmp/01-netcfg.yaml {{ lxd_dns_name }}/etc/netplan/01-netcfg.yaml
+  become: true
+
+- name: Supprimer le netplan cloud-init par défaut
+  ansible.builtin.command: >
+    /snap/bin/lxc exec {{ lxd_dns_name }} -- bash -lc "rm -f /etc/netplan/50-cloud-init.yaml"
+  become: true
+
+- name: Valider Netplan
+  ansible.builtin.command: >
+    /snap/bin/lxc exec {{ lxd_dns_name }} -- bash -lc "netplan generate"
+  register: netplan_generate
+  changed_when: false
+  become: true
+
+- name: Appliquer Netplan
+  ansible.builtin.command: >
+    /snap/bin/lxc exec {{ lxd_dns_name }} -- bash -lc "netplan apply"
+  become: true
+
+- name: Pause post-networking
+  ansible.builtin.command: sleep 5
+  changed_when: false
+  become: true
+
+- name: Vérifier les IP du conteneur
+  ansible.builtin.command: /snap/bin/lxc list
+  register: lxc_list
+  changed_when: false
+  become: true
+
+- name: Afficher conteneurs + IP
+  ansible.builtin.command: /snap/bin/lxc list
+  register: lxc_list
+  changed_when: false
+  become: true
+
+- name: Résumé final
+  ansible.builtin.debug:
+    msg: "{{ lxc_list.stdout }}"
+
+# =========================
+# Vérification de la connexion Internet dans le conteneur
+# =========================
+
+
+- name: Installer iputils-ping dans le conteneur
+  ansible.builtin.command: >
+    /snap/bin/lxc exec {{ lxd_dns_name }} -- bash -lc "apt-get update -y && apt-get install -y iputils-ping"
+  register: ping_install
+  changed_when: "'Setting up iputils-ping' in ping_install.stdout or ping_install.rc == 0"
+  failed_when: ping_install.rc not in [0]
+  become: true
+
+- name: Vérifier la connectivité Internet (ping vers 8.8.8.8)
+  ansible.builtin.command: >
+    /snap/bin/lxc exec {{ lxd_dns_name }} -- bash -lc "ping -c 3 8.8.8.8"
+  register: internet_check
+  changed_when: false
+  failed_when: false
+  become: true
+
+- name: Afficher résultat de la vérification Internet
+  ansible.builtin.debug:
+    msg: |
+      Résultat test Internet :
+      {{ internet_check.stdout }}
+      {{ internet_check.stderr }}
+
+# =========================
+# Installation de Bind9 dans le conteneur (seulement si ping OK)
+# =========================
+
+- name: Installer Bind9 et utilitaires dans le conteneur (idempotent)
+  ansible.builtin.command: >
+    /snap/bin/lxc exec {{ lxd_dns_name }} -- bash -lc
+    "set -e
+     export DEBIAN_FRONTEND=noninteractivE
+     apt-get update -y
+     MISSING=0
+     for p in {{ dns_packages | join(' ') }}; do
+       dpkg -s \"$p\" >/dev/null 2>&1 || MISSING=1
+     done
+     if [ \"$MISSING\" = 1 ]; then
+       apt-get install -y {{ dns_packages | join(' ') }}
+     else
+       echo 'ALL_PACKAGES_PRESENT'
+     fi"
+  register: bind9_install
+  changed_when: bind9_install.stdout is not search('ALL_PACKAGES_PRESENT')
+  failed_when: bind9_install.rc != 0
+  become: true
+  when: internet_check.rc == 0
+
+# =========================
+# Montage des volumes persistants dans le conteneur
+# =========================
+
+- name: Monter les volumes persistants dans le conteneur
+  ansible.builtin.command: >
+    /snap/bin/lxc config device add {{ lxd_dns_name }} {{ item.key }}
+    {{ item.value.type }} source={{ item.value.source }} path={{ item.value.path }}
+  loop: "{{ lxd_dns_devices | dict2items }}"
+  register: lxd_mounts
+  # 'lxc config device add' n'est pas idempotent : on ne fail pas si déjà présent
+  changed_when: >
+    ('Device added' in (lxd_mounts.stdout | default(''))) or
+    ('results' in lxd_mounts and
+      ('Device added' in (lxd_mounts.results | map(attribute='stdout') | join(' '))))
+  failed_when: false
+  become: true
+
+- name: Fixer ownership dans le conteneur (conf/cache/lib/logs)
+  ansible.builtin.command: >
+    /snap/bin/lxc exec {{ lxd_dns_name }} -- bash -lc "
+    set -e
+    # /etc/bind: souvent lecture par 'named', écriture possible si dyn/keys
+    chown -R root:bind /etc/bind
+    chmod -R u=rwX,g=rX,o=rX /etc/bind
+
+    # /var/cache/bind: utilisé par named pour le cache
+    mkdir -p /var/cache/bind
+    chown -R bind:bind /var/cache/bind
+    chmod -R 0750 /var/cache/bind
+
+    # /var/lib/bind: zones dynamiques, journal, clés TSIG/DDNS
+    mkdir -p /var/lib/bind
+    chown -R bind:bind /var/lib/bind
+    chmod -R 0750 /var/lib/bind
+
+    # /var/log/bind: logs applicatifs bind
+    mkdir -p /var/log/bind
+    chown -R bind:bind /var/log/bind
+    chmod -R 0750 /var/log/bind
+    "
+  changed_when: false
+  become: true
+
+# =========================
+# Inspection des répertoires Bind9
+# =========================
+
+# =========================
+# Vérification des fichiers Bind9 dans le conteneur
+# =========================
+
+- name: Lister contenu du répertoire /etc/bind dans le conteneur
+  ansible.builtin.command: >
+    lxc exec {{ lxd_dns_name }} -- ls -l /etc/bind
+  register: bind9_etc
+  changed_when: false
+  failed_when: false
+  become: true
+
+- name: Afficher contenu du répertoire /etc/bind
+  ansible.builtin.debug:
+    msg: "{{ bind9_etc.stdout }}"
+
+
+# 1) Vérifier la présence de named-checkconf
+- name: Vérifier la présence de named-checkconf dans le conteneur
+  ansible.builtin.command: >
+    /snap/bin/lxc exec {{ lxd_dns_name }} -- bash -lc "command -v named-checkconf || echo ABSENT"
+  register: named_checkconf_path
+  changed_when: false
+  become: true
+
+- name: Journal - état de named-checkconf
+  ansible.builtin.debug:
+    msg: >-
+      {% if named_checkconf_path.stdout == 'ABSENT' -%}
+      named-checkconf introuvable (bind9utils non installé ou PATH incomplet).
+      {% else -%}
+      named-checkconf trouvé: {{ named_checkconf_path.stdout }}
+      {%- endif %}
+
+# 2) Vérifier configuration globale Bind9 (named.conf) - via PATH
+- name: Vérifier configuration Bind9 (named.conf)
+  ansible.builtin.command: >
+    /snap/bin/lxc exec {{ lxd_dns_name }} -- bash -lc "named-checkconf -z /etc/bind/named.conf"
+  register: bind9_conf
+  changed_when: false
+  failed_when: bind9_conf.rc != 0
+  become: true
+  when: named_checkconf_path.stdout != 'ABSENT'
+
+# 3) Zone directe - via PATH
+- name: Vérifier la zone shq.internal
+  ansible.builtin.command: >
+    /snap/bin/lxc exec {{ lxd_dns_name }} -- bash -lc "named-checkzone shq.internal /etc/bind/shq.internal.db"
+  register: bind9_zone
+  changed_when: false
+  failed_when: bind9_zone.rc != 0
+  become: true
+  when: named_checkconf_path.stdout != 'ABSENT'
+
+# 4) Zone inverse - via PATH
+- name: Vérifier la zone inverse 10.168.192.in-addr.arpa
+  ansible.builtin.command: >
+    /snap/bin/lxc exec {{ lxd_dns_name }} -- bash -lc "named-checkzone 10.168.192.in-addr.arpa /etc/bind/192.168.10.rev"
+  register: bind9_rev
+  changed_when: false
+  failed_when: bind9_rev.rc != 0
+  become: true
+  when: named_checkconf_path.stdout != 'ABSENT'
+
+- name: Fixer ownership et permissions (conf/cache/lib/logs)
+  ansible.builtin.command: >
+    /snap/bin/lxc exec {{ lxd_dns_name }} -- bash -lc "
+    set -e
+    # /etc/bind: lecture (root:bind) OK
+    chown -R root:bind /etc/bind
+    chmod -R u=rwX,g=rX,o=rX /etc/bind
+
+    # /var/cache/bind: écriture pour named
+    mkdir -p /var/cache/bind
+    chown -R bind:bind /var/cache/bind
+    chmod -R 0750 /var/cache/bind
+
+    # /var/lib/bind: zones dynamiques, journal
+    mkdir -p /var/lib/bind
+    chown -R bind:bind /var/lib/bind
+    chmod -R 0750 /var/lib/bind
+
+    # /var/log/bind: logs applicatifs
+    mkdir -p /var/log/bind
+    chown -R bind:bind /var/log/bind
+    chmod -R 0750 /var/log/bind
+    "
+  changed_when: false
+  become: true
+
+
+# 5) Activer et démarrer Bind9 (uniquement si les checks ont réussi)
+- name: Activer et démarrer Bind9
+  ansible.builtin.command: >
+    /snap/bin/lxc exec {{ lxd_dns_name }} -- systemctl enable --now named
+  register: bind9_service
+  changed_when: "'Created symlink' in bind9_service.stdout or 'Started' in bind9_service.stdout or bind9_service.rc == 0"
+  failed_when: bind9_service.rc != 0
+  become: true
+  when:
+    - named_checkconf_path.stdout != 'ABSENT'
+    - bind9_conf is defined and bind9_conf.rc == 0
+    - bind9_zone is defined and bind9_zone.rc == 0
+    - bind9_rev  is defined and bind9_rev.rc  == 0
+
+# 6) Résumé
+- name: Résumé des vérifications Bind9
+  ansible.builtin.debug:
+    msg:
+      - "Conf check rc: {{ (bind9_conf.rc | default('n/a')) }} stdout: {{ bind9_conf.stdout | default('') }}"
+      - "Zone shq.internal rc: {{ (bind9_zone.rc | default('n/a')) }} stdout: {{ bind9_zone.stdout | default('') }}"
+      - "Reverse zone rc: {{ (bind9_rev.rc | default('n/a')) }} stdout: {{ bind9_rev.stdout | default('') }}"
+      - "Service bind9 rc: {{ (bind9_service.rc | default('n/a')) }} stdout: {{ bind9_service.stdout | default('') }}"
+
+# =========================
+# Tests de résolution DNS avec dig
+# =========================
+
+- name: Test résolution A (forward lookup)
+  ansible.builtin.command: >
+    /snap/bin/lxc exec {{ lxd_dns_name }} -- dig @127.0.0.1 dns.shq.internal A +short
+  register: dig_a_result
+  changed_when: false
+  failed_when: false
+  become: true
+
+- name: Afficher résultat résolution A
+  ansible.builtin.debug:
+    msg: "Résultat A record : {{ dig_a_result.stdout }}"
+
+- name: Test résolution PTR (reverse lookup)
+  ansible.builtin.command: >
+    /snap/bin/lxc exec {{ lxd_dns_name }} -- dig @127.0.0.1 -x 192.168.10.53 +short
+  register: dig_ptr_result
+  changed_when: false
+  failed_when: false
+  become: true
+
+- name: Afficher résultat résolution PTR
+  ansible.builtin.debug:
+    msg: "Résultat PTR record : {{ dig_ptr_result.stdout }}"
+
+- name: Test résolution NS (name server)
+  ansible.builtin.command: >
+    /snap/bin/lxc exec {{ lxd_dns_name }} -- dig @127.0.0.1 shq.internal NS +short
+  register: dig_ns_result
+  changed_when: false
+  failed_when: false
+  become: true
+
+- name: Afficher résultat résolution NS
+  ansible.builtin.debug:
+    msg: "Résultat NS record : {{ dig_ns_result.stdout }}"
+
+
+# =========================
+# Vérification du service
+# =========================
+
+- name: Vérifier que le service Bind9 est actif
+  ansible.builtin.command: >
+    /snap/bin/lxc exec {{ lxd_dns_name }} -- systemctl is-active named
+  register: bind9_status
+  changed_when: false
+  failed_when: false
+  become: true
+
+- name: Afficher état du service Bind9
+  ansible.builtin.debug:
+    msg: "État du service Bind9 : {{ bind9_status.stdout }}"
+

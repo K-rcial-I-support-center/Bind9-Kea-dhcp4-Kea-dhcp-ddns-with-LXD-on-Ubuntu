@@ -1,0 +1,31 @@
+
+---
+# Installation KVM/Libvirt via APT et activation du service libvirtd
+# Idempotent — pas de variables externes nécessaires
+
+- name: Installer les paquets requis (qemu-kvm, libvirt, bridge-utils, virt-manager)
+  ansible.builtin.apt:
+    name:
+      - qemu-kvm
+      - libvirt-daemon-system
+      - libvirt-clients
+      - bridge-utils
+      - virt-manager     # laisser si GUI locale/X11; sinon, retirer
+    state: present
+  when: ansible_pkg_mgr == 'apt'
+  tags: [packages]
+
+- name: Activer et démarrer libvirtd
+  ansible.builtin.systemd:
+    name: libvirtd
+    enabled: true
+    state: started
+    daemon_reload: true
+  tags: [service]
+
+# Ajouter un utilisateur spécifique au groupe libvirt pour accès à virsh/qemu:///system
+- name: Ajouter l'utilisateur au groupe libvirt
+  ansible.builtin.user:
+    name: "ubuntu"  
+    groups: "libvirt"
+    append: true

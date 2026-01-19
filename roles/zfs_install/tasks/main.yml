@@ -1,0 +1,17 @@
+
+---
+# Installation ZFS et vérifications de base
+
+- name: Installer zfsutils-linux
+  ansible.builtin.apt:
+    name: zfsutils-linux
+    state: present
+  when: ansible_pkg_mgr == 'apt'
+
+# (Optionnel) Charger le module zfs si nécessaire — généralement automatique après installation
+- name: Charger le module ZFS (best-effort)
+  ansible.builtin.shell: |
+    set -e
+    modprobe zfs || true
+  changed_when: false
+

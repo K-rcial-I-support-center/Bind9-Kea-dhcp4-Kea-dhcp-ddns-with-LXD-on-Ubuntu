@@ -1,0 +1,367 @@
+---
+# =========================
+# Création des volumes persistants sur l’hôte
+# =========================
+
+- name: Créer les répertoires persistants sur l'hote
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - "{{ kea_host_root }}"
+    - "{{ kea_host_etc }}"    
+    - "{{ kea_host_lib }}"    
+    - "{{ kea_host_logs }}"   
+  become: true
+  
+# =========================
+# Déploiement des fichiers de configuration
+# =========================
+
+- name: Déploiement kea-dhcp4.conf
+  ansible.builtin.template:
+    src: kea-dhcp4.conf.j2
+    dest: "{{ kea_host_etc }}/kea-dhcp4.conf"
+
+- name: Déploiement kea-dhcp-ddns.conf
+  ansible.builtin.template:
+    src: kea-dhcp-ddns.conf.j2
+    dest: "{{ kea_host_etc }}/kea-dhcp-ddns.conf"
+
+- name: Déploiement kea-ctrl-agent.conf
+  ansible.builtin.template:
+    src: kea-ctrl-agent.conf.j2
+    dest: "{{ kea_host_etc }}/kea-ctrl-agent.conf"
+
+- name: Déploiement du fichier hosts.conf
+  ansible.builtin.template:
+    src: hosts.conf.j2
+    dest: "{{ kea_host_etc }}/hosts.conf"
+
+# Deploiement de sous reseaux
+- name: Déploiement de 192.168.10.0/24
+  ansible.builtin.template:
+    src: 192.168.10.conf.j2
+    dest: "{{ kea_host_etc }}/192.168.10.conf"
+
+# =========================
+# Vérification du remote LXD ubuntu:
+# =========================
+
+- name: Vérifier si le remote ubuntu est configuré
+  ansible.builtin.command: lxc remote list
+  register: lxc_remotes
+  changed_when: false
+  become: true
+
+- name: Ajouter le remote ubuntu si absent
+  ansible.builtin.command: >
+    lxc remote add ubuntu https://images.lxd.canonical.com --protocol simplestreams
+  when: "'ubuntu' not in lxc_remotes.stdout"
+  become: true
+
+# ==============================================#
+# Création et configuration du conteneur DHCP   #
+# ==============================================#
+
+# =========================
+# PROFIL MANAGEMENT (eth0 -> mgmtbr0) && PROFIL LAN (eth1 -> br0) deja definit au lancement du conteneur DNS
+# =========================
+
+- name: Vérifier présence du conteneur
+  ansible.builtin.command: /snap/bin/lxc info "{{ lxd_dhcp_name }}"
+  register: lxc_info
+  changed_when: false
+  failed_when: false
+  become: true
+
+- name: Supprimer le conteneur s'il existe déjà
+  ansible.builtin.command: /snap/bin/lxc delete "{{ lxd_dhcp_name }}" --force
+  when: lxc_info.rc == 0
+  become: true
+
+- name: Créer le conteneur DHCP avec profils mgmtbr0 + br0
+  ansible.builtin.command: >
+    /snap/bin/lxc launch {{ lxd_dhcp_release | default('ubuntu:24.04') }}
+    {{ lxd_dhcp_name }} -p mgmtbr0 -p br0 --quiet
+  args:
+    creates: "/var/snap/lxd/common/lxd/containers/{{ lxd_dhcp_name }}"
+  async: 30
+  poll: 0
+  become: true
+
+- name: Attendre que le conteneur soit démarré
+  ansible.builtin.command: >
+    /snap/bin/lxc info {{ lxd_dhcp_name }}
+  register: lxc_info
+  retries: 20
+  delay: 3
+  until: "'RUNNING' in lxc_info.stdout"
+  changed_when: false
+  become: true
+
+# Désactiver cloud-init AVANT apt/netplan
+- name: Désactiver cloud-init dans le conteneur
+  ansible.builtin.command: >
+    /snap/bin/lxc exec {{ lxd_dhcp_name }} -- bash -lc "touch /etc/cloud/cloud-init.disabled"
+  become: true
+
+- name: Supprimer le netplan cloud-init par défaut
+  ansible.builtin.command: >
+    /snap/bin/lxc exec {{ lxd_dhcp_name }} -- bash -lc "rm -f /etc/netplan/50-cloud-init.yaml"
+  become: true
+
+- name: Pause pour attribution IP
+  ansible.builtin.command: sleep 5
+  changed_when: false
+  become: true
+
+
+# =========================
+# DEPLOIEMENT DU NETPLAN
+# =========================
+
+- name: Générer le Netplan localement
+  ansible.builtin.template:
+    src: netplan-static.yaml.j2
+    dest: /tmp/01-netcfg.yaml
+    owner: root
+    group: root
+    mode: '0600'
+  become: true
+
+- name: Copier le Netplan dans le conteneur
+  ansible.builtin.command: >
+    /snap/bin/lxc file push /tmp/01-netcfg.yaml {{ lxd_dhcp_name }}/etc/netplan/01-netcfg.yaml
+  become: true
+
+- name: Supprimer le netplan cloud-init par défaut
+  ansible.builtin.command: >
+    /snap/bin/lxc exec {{ lxd_dhcp_name }} -- bash -lc "rm -f /etc/netplan/50-cloud-init.yaml"
+  become: true
+
+- name: Valider Netplan
+  ansible.builtin.command: >
+    /snap/bin/lxc exec {{ lxd_dhcp_name }} -- bash -lc "netplan generate"
+  register: netplan_generate
+  changed_when: false
+  become: true
+
+- name: Appliquer Netplan
+  ansible.builtin.command: >
+    /snap/bin/lxc exec {{ lxd_dhcp_name }} -- bash -lc "netplan apply"
+  become: true
+
+- name: Pause post-networking
+  ansible.builtin.command: sleep 5
+  changed_when: false
+  become: true
+
+- name: Vérifier les IP du conteneur
+  ansible.builtin.command: /snap/bin/lxc list
+  register: lxc_list
+  changed_when: false
+  become: true
+
+- name: Afficher conteneurs + IP
+  ansible.builtin.command: /snap/bin/lxc list
+  register: lxc_list
+  changed_when: false
+  become: true
+
+- name: Résumé final
+  ansible.builtin.debug:
+    msg: "{{ lxc_list.stdout }}"
+
+##################################
+
+- name: Appliquer la configuration LXD de production au conteneur DHCP
+  ansible.builtin.command: >
+    /snap/bin/lxc config set {{ lxd_dhcp_name }} {{ item.key }}={{ item.value }}
+  loop: "{{ lxd_dhcp_config | dict2items }}"
+  register: lxd_dhcp_cfg
+  changed_when: "'Updated' in (lxd_dhcp_cfg.stdout | default('')) or
+                 ('results' in lxd_dhcp_cfg and 'Updated' in (lxd_dhcp_cfg.results | map(attribute='stdout') | join(' ')))"
+  failed_when: false
+  become: true
+
+
+# ======================================
+# Installation idempotente de iputils-ping
+# ======================================
+
+- name: Installer iputils-ping dans le conteneur (idempotent)
+  ansible.builtin.command: >
+    /snap/bin/lxc exec {{ lxd_dhcp_name }} -- bash -lc "
+    set -e
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update -y
+    dpkg -s iputils-ping >/dev/null 2>&1 || apt-get install -y iputils-ping
+    "
+  register: ping_install
+  changed_when: ping_install.stdout is not search('up-to-date')
+  failed_when: ping_install.rc != 0
+  become: true
+
+# ======================================
+# Vérification connectivité Internet
+# ======================================
+
+- name: Vérifier la connectivité Internet (ping vers 8.8.8.8)
+  ansible.builtin.command: >
+    /snap/bin/lxc exec {{ lxd_dhcp_name }} -- bash -lc "ping -c 3 8.8.8.8"
+  register: internet_check
+  changed_when: false
+  failed_when: false
+  become: true
+
+- name: Afficher résultat de la vérification Internet
+  ansible.builtin.debug:
+    msg: |
+      Résultat test Internet :
+      {{ internet_check.stdout }}
+
+# =========================
+# Installer Kea DHCPv4 + DDNS + API REST dans le conteneur
+# =========================
+
+- name: Installer Kea DHCPv4, DDNS, Control Agent et outils (idempotent)
+  ansible.builtin.command: |
+    /snap/bin/lxc exec {{ lxd_dhcp_name }} -- bash -lc '
+      set -e
+      export DEBIAN_FRONTEND=noninteractive
+
+      # (Optionnel mais utile sur Ubuntu 24.04) activer universe si besoin
+      if ! apt-cache policy | grep -q "^ 500 http.*ubuntu.*universe"; then
+        (command -v add-apt-repository >/dev/null 2>&1 || apt-get update -y && apt-get install -y software-properties-common)
+        add-apt-repository -y universe || true
+      fi
+
+      apt-get update -y
+
+      MISSING=0
+      for p in {{ dhcp_packages | join(" ") }}; do
+        dpkg -s "$p" >/dev/null 2>&1 || MISSING=1
+      done
+
+      if [ "$MISSING" = 1 ]; then
+        apt-get install -y {{ dhcp_packages | join(" ") }}
+      else
+        echo "ALL_PACKAGES_PRESENT"
+      fi
+    '
+  register: kea_install
+  changed_when: kea_install.stdout is not search('ALL_PACKAGES_PRESENT')
+  failed_when: kea_install.rc != 0
+  become: true
+  when: internet_check.rc == 0
+
+# =========================
+# Montage des volumes persistants dans le conteneur
+# =========================
+
+- name: Monter les volumes persistants Kea dans le conteneur DHCP
+  ansible.builtin.command: >
+    /snap/bin/lxc config device add {{ lxd_dhcp_name }} {{ item.key }}
+    {{ item.value.type }} source={{ item.value.source }} path={{ item.value.path }}
+  loop: "{{ lxd_dhcp_devices | dict2items }}"
+  register: lxd_mounts
+  changed_when: >
+    ('Device added' in (lxd_mounts.stdout | default(''))) or
+    ('results' in lxd_mounts and
+      ('Device added' in (lxd_mounts.results | map(attribute='stdout') | join(' '))))
+  failed_when: false
+  become: true
+
+
+# =========================
+# Permissions (_kea)
+# =========================
+- name: Fixer ownership et permissions Kea dans le conteneur
+  ansible.builtin.command: >
+    /snap/bin/lxc exec {{ lxd_dhcp_name }} -- bash -lc "
+    set -e
+
+    # Confs lisibles par _kea (lecture groupe)
+    mkdir -p /etc/kea
+    chown -R root:_kea /etc/kea
+    chmod -R u=rwX,g=rX,o=rX /etc/kea
+
+    # Leases / états / journaux DDNS
+    mkdir -p /var/lib/kea
+    chown -R _kea:_kea /var/lib/kea
+    chmod -R 0750 /var/lib/kea
+
+    # Logs
+    mkdir -p /var/log/kea
+    chown -R _kea:_kea /var/log/kea
+    chmod -R 0750 /var/log/kea
+    "
+  changed_when: false
+  become: true
+
+# =========================
+# Inspection des répertoires dhcp
+# =========================
+
+# =========================
+# Vérification des fichiers kea dans le conteneur
+# =========================
+
+- name: Lister contenu du répertoire /etc/kea dans le conteneur
+  ansible.builtin.command: >
+    /snap/bin/lxc exec {{ lxd_dhcp_name }} -- bash -lc "ls -l /etc/kea"
+  register: kea_etc
+  changed_when: false
+  failed_when: false
+  become: true
+
+- name: Afficher contenu du répertoire /etc/kea
+  ansible.builtin.debug:
+    msg: "{{ kea_etc.stdout }}"
+
+
+
+# =========================
+# Vérification du service
+# =========================
+
+- name: Tester l’API REST Kea pour dhcp4 et dhcp-ddns (status-get)
+  ansible.builtin.command: >
+    /snap/bin/lxc exec {{ lxd_dhcp_name }} -- bash -lc
+    "curl -s -X POST -H 'Content-Type: application/json'
+     -d '{ \"command\": \"status-get\", \"service\": [ \"{{ item }}\" ] }'
+     http://127.0.0.1:8000/"
+  loop:
+    - dhcp4
+    - dhcp-ddns
+  register: kea_api_status
+  changed_when: false
+  failed_when: false
+  become: true
+
+- name: Afficher les réponses API REST Kea
+  ansible.builtin.debug:
+    msg: "Service {{ item.item }} : {{ item.stdout }}"
+  loop: "{{ kea_api_status.results }}"
+
+# ====================================
+# Vérifier que les sockets existent
+# ====================================
+
+- name: Vérifier la présence des sockets Kea (dhcp4, ddns, ctrl-agent)
+  ansible.builtin.command: >
+    /snap/bin/lxc exec {{ lxd_dhcp_name }} -- bash -lc "
+    ls -l /run/kea || true;
+    ss -ltnup | grep -E ':8000\\b' || true"
+  register: kea_sockets
+  changed_when: false
+  failed_when: false
+  become: true
+
+- name: Journal sockets Kea
+  ansible.builtin.debug:
+    msg: "{{ kea_sockets.stdout }}"

@@ -1,0 +1,14 @@
+
+---
+- name: Installer smartmontools et lm-sensors
+  ansible.builtin.apt:
+    name:
+      - smartmontools
+      - lm-sensors
+    state: present
+    update_cache: true
+
+- name: Exécuter sensors-detect (non interactif safe)
+  ansible.builtin.command: sensors-detect --auto
+  register: sensors_detect
+  changed_when: "'modules to load' in sensors_detect.stdout"

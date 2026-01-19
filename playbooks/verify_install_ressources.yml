@@ -1,0 +1,77 @@
+---
+# ===== Vérifications KVM / Libvirt =====
+- name: Vérifier la virtualisation CPU (VT-x/AMD-V)
+  ansible.builtin.command: lscpu
+  register: lscpu_info
+  changed_when: false
+
+- name: Extraire info Virtualization
+  ansible.builtin.set_fact:
+    virt_flag: "{{ (lscpu_info.stdout_lines | select('search', 'Virtualization') | list | first | default('unknown')) }}"
+
+- name: Vérifier modules KVM chargés
+  ansible.builtin.command: lsmod
+  register: lsmod_info
+  changed_when: false
+
+- name: Tester la connexion libvirt (qemu:///system)
+  ansible.builtin.command: virsh -c qemu:///system list --all
+  register: virsh_check
+  changed_when: false
+  failed_when: virsh_check.rc != 0
+
+# ===== Vérifications ZFS =====
+- name: Vérifier binaire zpool
+  ansible.builtin.command: which zpool
+  register: which_zpool
+  changed_when: false
+  failed_when: which_zpool.rc != 0
+
+- name: Vérifier binaire zfs
+  ansible.builtin.command: which zfs
+  register: which_zfs
+  changed_when: false
+  failed_when: which_zfs.rc != 0
+
+- name: zpool list
+  ansible.builtin.command: zpool list
+  register: zpool_list
+  changed_when: false
+
+- name: zfs list
+  ansible.builtin.command: zfs list
+  register: zfs_list
+  changed_when: false
+
+# ===== Vérifications LXD / LXC =====
+- name: Vérifier version lxc
+  ansible.builtin.command: lxc --version
+  register: lxc_version
+  changed_when: false
+  failed_when: lxc_version.rc != 0
+
+- name: Lister les instances LXD
+  ansible.builtin.command: lxc list
+  register: lxc_list
+  changed_when: false
+
+# ===== Vérifications UFW =====
+- name: Vérifier les règles UFW
+  ansible.builtin.command: ufw status numbered
+  register: ufw_status
+  changed_when: false
+
+# ===== Résumé global =====
+- name: Résumé post-installation
+  ansible.builtin.debug:
+    msg:
+      - "Virtualisation CPU : {{ virt_flag }}"
+      - "Modules KVM détectés : {{ lsmod_info.stdout_lines | select('search', '^kvm') | list | default(['non détecté']) }}"
+      - "virsh OK : {{ virsh_check.rc == 0 }}"
+      - "zpool : {{ which_zpool.stdout | default('absent') }}"
+      - "zfs : {{ which_zfs.stdout | default('absent') }}"
+      - "zpool list:\n{{ zpool_list.stdout | default('Aucun pool ZFS') }}"
+      - "zfs list:\n{{ zfs_list.stdout | default('Aucun dataset ZFS') }}"
+      - "lxc version : {{ lxc_version.stdout | default('unknown') }}"
+      - "lxc list:\n{{ lxc_list.stdout | default('Aucune instance') }}"
+      - "UFW status :\n{{ ufw_status.stdout | default('UFW non configuré') }}"

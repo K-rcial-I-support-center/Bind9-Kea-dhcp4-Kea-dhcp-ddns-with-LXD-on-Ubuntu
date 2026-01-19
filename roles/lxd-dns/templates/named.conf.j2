@@ -1,0 +1,95 @@
+
+// **************************************************************************************************
+//
+// Serveur DNS autoritaire primaire
+// -- named.conf est le fichier de configuration principale du serveur DNS
+// -- named.local.conf est le fichier de configuration 
+//    qui est inclu dans named.conf et defini les zones master local
+// -- named.option.conf est le fichier de config inclu dans named.conf et definit les forwader
+// 
+// **************************************************************************************************
+
+
+// -----------------------------
+// Options globales du serveur
+// -----------------------------
+
+options {
+    directory "/var/cache/bind";
+    version "not currently available";
+
+    listen-on { 192.168.10.53; };
+    listen-on-v6 { none; };
+
+    allow-query { any; };
+    allow-query-cache { none; };
+    
+    dnssec-validation no;
+
+    recursion no;
+
+    statistics-file "/var/log/bind/named.stats";
+};
+
+// ------------------------------------
+// Zones locales loopback et localhost
+// ------------------------------------
+
+zone "localhost" {
+    type master;
+    file "/var/cache/bind/localhost.db";
+    notify no;
+};
+
+zone "0.0.127.in-addr.arpa" {
+  type master;
+  file "/var/cache/bind/localhost.rev";
+  notify no;
+};
+
+include "/etc/bind/ddns.key";
+
+############################################
+### Zone directe primaire
+############################################
+
+zone "shq.internal" {
+    type master;
+    file "/var/cache/bind/shq.internal.db";
+    allow-update { key "DHCP_UPDATER"; };
+    allow-transfer {192.168.10.54; };
+    also-notify { 192.168.10.54; };
+};
+
+
+############################################
+### Zone inverse primaire
+############################################
+
+zone "10.168.192.in-addr.arpa" {
+    type master;
+    file "/var/cache/bind/192.168.10.rev";
+    allow-update { key "DHCP_UPDATER"; };
+    allow-transfer {192.168.10.54; };
+    also-notify { 192.168.10.54; };
+};
+
+include "/etc/bind/named.conf.local";
+
+logging {
+    channel default_log {
+        stderr;
+        severity info;
+        print-time yes;
+        print-severity yes;
+        print-category yes;
+    };
+
+    category default { default_log; };
+    category general { default_log; };
+    category security { default_log; };
+    category queries { default_log; };
+    category xfer-in { default_log; };
+    category xfer-out { default_log; };
+    category lame-servers { default_log; };
+};

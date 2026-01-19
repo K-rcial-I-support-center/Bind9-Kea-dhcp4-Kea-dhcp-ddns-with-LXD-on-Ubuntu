@@ -1,0 +1,14 @@
+$TTL 86400        ; 1 day
+$ORIGIN 10.168.192.in-addr.arpa.
+
+@   IN SOA dns.shq.internal. root.shq.internal. (
+        2025121157 ; serial
+        3600       ; refresh (1 hour)
+        1800       ; retry (30 minutes)
+        604800     ; expire (1 week)
+        86400      ; minimum (1 day)
+)
+
+@       IN NS  dns.shq.internal.
+53      IN PTR dns.shq.internal.
+

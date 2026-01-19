@@ -1,0 +1,35 @@
+---
+- name: Installation des utilitaires
+  hosts: all
+  become: true
+  gather_facts: true
+
+ # 1) Prérequis communs
+  pre_tasks:
+    - name: Assurer que snapd est présent (Ubuntu/Debian)
+      ansible.builtin.apt:
+        name: snapd
+        state: present
+        update_cache: true
+      when: ansible_pkg_mgr == 'apt'
+
+    - name: Mise à jour de l'index APT
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+      when: ansible_pkg_mgr == 'apt'
+      tags: [packages]
+
+  # 2) Rôles (chacun fait son installation/config)
+  roles:
+    - role: kvm_install
+    - role: zfs_install
+    - role: lxd_install
+    - role: ufw_install
+
+  # 3) Vérifications combinées
+  post_tasks:
+    - name: Verification apres installation des outils de virtualisation et conteneurisation
+      ansible.builtin.import_tasks: verify_install_ressources.yml
+
+

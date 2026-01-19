@@ -1,0 +1,38 @@
+
+stages:
+  - lint        # Vérification du code Ansible
+  - deploy      # Déploiement avec Ansible
+
+variables:
+  ANSIBLE_FORCE_COLOR: "true"                 # Sortie colorée
+  ANSIBLE_STDOUT_CALLBACK: "yaml"             # Format YAML lisible
+  INVENTORY_PATH: "inventories/hosts.yml"     # Inventaire Ansible
+
+default:
+  before_script:
+    - python3 --version
+    - pip --version
+    - ansible --version || true
+
+lint:
+  stage: lint
+  image: python:3.11-slim
+  script:
+    - pip install --no-cache-dir ansible-core ansible-lint
+    - ansible-lint playbooks/                 # Analyse playbooks et rôles
+  allow_failure: false
+
+deploy:
+  stage: deploy
+  image: python:3.11-slim
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "Ubuntu-LXD"'   # Déployer seulement sur la branche ciblée
+    - when: manual                              # Lancement manuel depuis l’UI CI
+  script:
+    - pip install --no-cache-dir ansible-core
+    - ansible-playbook playbooks/initialisation.yml \
+        -i "$INVENTORY_PATH" \
+        --limit ubuntu \
+        --diff
+  environment:
+    name: production

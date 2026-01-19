@@ -1,0 +1,18 @@
+# roles/ssh_hardening/tasks/main.yml
+- name: Désactiver l'accès SSH root
+  ansible.builtin.lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: '^PermitRootLogin'
+    line: 'PermitRootLogin no'
+    state: present
+    backup: true
+  notify: restart ssh
+
+- name: Définir le port SSH
+  ansible.builtin.lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: '^Port'
+    line: 'Port 22'
+    state: present
+    backup: true
+  notify: restart ssh

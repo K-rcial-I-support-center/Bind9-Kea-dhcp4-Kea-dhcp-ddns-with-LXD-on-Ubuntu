@@ -1,0 +1,67 @@
+{
+  "DhcpDdns": {
+    "ip-address": "127.0.0.1",
+    "port": 53001,
+    "dns-server-timeout": 500,
+    "ncr-protocol": "UDP",
+    "ncr-format": "JSON",
+
+    "tsig-keys": [
+      {
+        "name": "DHCP_UPDATER",
+        "algorithm": "hmac-sha256",
+        "secret": "xmY6auXcITAXPSAEva+L4sZqBaOkeKl/r9RlsVjwRw8="
+      }
+    ],
+    
+    "control-sockets": [
+      {
+        "socket-type": "http",
+        "socket-address": "0.0.0.0",
+        "socket-port": 8000
+      }
+    ],
+    
+    "reverse-ddns": {
+      "ddns-domains": [
+        {
+          "name": "0.0.10.in-addr.arpa.",
+          "key-name": "DHCP_UPDATER",
+          "dns-servers": [
+            {
+              "ip-address": "192.168.10.53",
+              "port": 53
+            }
+          ]
+        }
+      ]
+    },
+    "forward-ddns": {
+      "ddns-domains": [
+        {
+          "name": "shq.internal.",
+          "key-name": "DHCP_UPDATER",
+          "dns-servers": [
+            {
+              "ip-address": "192.168.10.53",
+              "port": 53
+            }
+          ]
+        }
+      ]
+    },
+    
+    "loggers": [
+      {
+        "name": "*",
+        "output-options": [
+          {
+            "output": "stdout"
+          }
+        ],
+        "severity": "DEBUG",
+        "debuglevel": 99
+      }
+    ]
+  }
+}

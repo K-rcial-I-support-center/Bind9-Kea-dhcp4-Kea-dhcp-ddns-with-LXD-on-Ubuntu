@@ -1,0 +1,38 @@
+
+---
+- name: Installer dépôt Dell System Update (si dispo Ubuntu 24.04)
+  ansible.builtin.apt:
+    name: dell-system-update
+    state: present
+    update_cache: true
+
+- name: Inventaire DSU
+  ansible.builtin.command: dsu --inventory
+  register: dsu_inventory
+  changed_when: false
+
+- name: Télécharger mises à jour
+  ansible.builtin.command: dsu --download
+  register: dsu_download
+  changed_when: "'Downloaded' in dsu_download.stdout"
+
+- name: Appliquer mises à jour
+  ansible.builtin.command: dsu --apply
+  register: dsu_apply
+  changed_when: "'Applied' in dsu_apply.stdout"
+
+
+  
+---
+- name: Installer mdadm
+  ansible.builtin.apt:
+    name: mdadm
+    state: present
+    update_cache: true
+
+- name: Installer outils réseau avancés
+  ansible.builtin.apt:
+    name:
+      - ethtool
+      - ifenslave
+

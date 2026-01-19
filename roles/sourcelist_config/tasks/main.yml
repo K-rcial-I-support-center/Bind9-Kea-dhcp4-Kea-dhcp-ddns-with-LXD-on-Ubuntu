@@ -1,0 +1,39 @@
+- name: Désactiver l’ancien sources.list
+  ansible.builtin.copy:
+    dest: /etc/apt/sources.list
+    owner: root
+    group: root
+    mode: '0644'
+    backup: true
+    content: |
+      # Fichier désactivé, dépôts gérés via /etc/apt/sources.list.d/*.sources
+
+- name: Déployer dépôts principaux Ubuntu (Noble)
+  ansible.builtin.copy:
+    dest: /etc/apt/sources.list.d/ubuntu.sources
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      Types: deb
+      URIs: http://archive.ubuntu.com/ubuntu/
+      Suites: noble noble-updates noble-backports
+      Components: main restricted universe multiverse
+      Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+
+- name: Déployer dépôts sécurité Ubuntu (Noble)
+  ansible.builtin.copy:
+    dest: /etc/apt/sources.list.d/security.sources
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      Types: deb
+      URIs: http://security.ubuntu.com/ubuntu/
+      Suites: noble-security
+      Components: main restricted universe multiverse
+      Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+
+- name: Mettre à jour les index APT
+  ansible.builtin.apt:
+    update_cache: true

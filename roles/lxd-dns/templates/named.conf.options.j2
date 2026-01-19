@@ -1,0 +1,93 @@
+zone "shq.local" IN {
+    type forward;
+    forwarders { 
+        10.100.120.50; 
+        10.100.231.50;
+    };
+};
+
+### FORWARDERS TYPE ZONES ###
+### Forwarder to MCN GOUVERNEMENT DU QUEBEC
+###
+zone "qc" IN {
+    type forward;
+    forwarders { 
+        10.70.0.98; 
+        10.70.0.66; 
+    };
+};
+
+zone "sig.intranet.gouv.qc.ca" IN {
+    type forward;
+    forwarders { 10.70.0.98; 10.70.0.66; };
+};
+
+zone "ritm.gouv.qc.ca" IN {
+        type forward;
+        forwarders { 10.70.0.98; 10.70.0.66; };
+};
+
+zone "scvc.intranet" IN {
+        type forward;
+        forwarders { 10.70.0.66; 10.70.0.98; };
+};
+
+zone "carrieres.gouv.qc.ca" IN {
+        type forward;
+        forwarders { 10.70.0.98; 10.70.0.66; };
+};
+
+
+### Forwarder to AWS
+###
+zone "shq-poc.local" IN {
+        type forward;
+        forwarders { 10.0.0.50; 10.0.1.50; };
+};
+
+zone "shq-poc-ecs.local" IN {
+        type forward;
+        forwarders { 10.0.0.50; 10.0.1.50; };
+};
+
+zone "nuage-interne.habitation.gouv.qc.ca" IN {
+        type forward;
+        forward only;
+        forwarders { 10.234.0.103; 10.234.1.188; };
+};
+
+zone "aws.shq.internal" IN {
+        type forward;
+        forward only;
+        forwarders { 10.234.0.103; 10.234.1.188; };
+};
+
+zone "api-interne.habitation.gouv.qc.ca" IN {
+        type forward;
+        forward only;
+        forwarders { 10.234.0.103; 10.234.1.188; };
+};
+
+zone "compute.internal" IN {
+        type forward;
+        forward only;
+        forwarders { 10.234.0.103; 10.234.1.188; };
+};
+
+
+### Forwarder to AZURE LABO-SHQ
+###
+zone "labo-shq.quebec" IN {
+        type forward;
+        forward only;
+        forwarders { 10.200.129.4; 10.200.129.5; };
+};
+
+
+### Forwarder to AZURE azprod.shq.gouv.qc.ca
+###
+zone "azprod.shq.gouv.qc.ca" IN {
+        type forward;
+        forward only;
+        forwarders { 10.200.0.4; 10.200.0.5; };
+};

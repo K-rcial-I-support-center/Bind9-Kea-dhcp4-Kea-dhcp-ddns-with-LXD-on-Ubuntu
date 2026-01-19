@@ -1,0 +1,71 @@
+---
+# Installation et configuration de UFW
+
+- name: Installer UFW
+  ansible.builtin.apt:
+    name: ufw
+    state: present
+    update_cache: true
+  when: ansible_pkg_mgr == 'apt'
+
+# Définir les politiques par défaut AVANT d'activer UFW
+- name: Politique par défaut incoming (deny)
+  ansible.builtin.ufw:
+    policy: deny
+    direction: incoming
+
+- name: Politique par défaut outgoing (allow)
+  ansible.builtin.ufw:
+    policy: allow
+    direction: outgoing
+
+# Autoriser SSH pour éviter de bloquer la connexion
+- name: Autoriser SSH (port 22)
+  ansible.builtin.ufw:
+    rule: allow
+    name: OpenSSH
+
+# Autoriser HTTP (port 80)
+- name: Autoriser HTTP
+  ansible.builtin.ufw:
+    rule: allow
+    port: 80
+    proto: tcp
+
+# Autoriser HTTPS (port 443)
+- name: Autoriser HTTPS
+  ansible.builtin.ufw:
+    rule: allow
+    port: 443
+    proto: tcp
+
+# Autoriser Bind (DNS : 53/tcp et 53/udp)
+- name: Autoriser DNS TCP (Bind / Kea-DDNS)
+  ansible.builtin.ufw:
+    rule: allow
+    port: 53
+    proto: tcp
+
+- name: Autoriser DNS UDP (Bind / Kea-DDNS)
+  ansible.builtin.ufw:
+    rule: allow
+    port: 53
+    proto: udp
+
+# Autoriser Kea DHCP (67/udp serveur, 68/udp client)
+- name: Autoriser DHCP serveur (Kea)
+  ansible.builtin.ufw:
+    rule: allow
+    port: 67
+    proto: udp
+
+- name: Autoriser DHCP client (Kea)
+  ansible.builtin.ufw:
+    rule: allow
+    port: 68
+    proto: udp
+
+# Activer UFW en toute fin
+- name: Activer UFW
+  ansible.builtin.ufw:
+    state: enabled

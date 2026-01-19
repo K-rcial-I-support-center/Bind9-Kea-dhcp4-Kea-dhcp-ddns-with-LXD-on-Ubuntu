@@ -1,0 +1,55 @@
+---
+lxd_dns_name: "dns"
+lxd_dns_release: "ubuntu:24.04"
+
+# Volumes persistants sur l’hôte
+
+bind_host_root: "/opt/dns"
+
+bind_host_etc:   "{{ bind_host_root }}/etc"
+bind_host_cache: "{{ bind_host_root }}/cache"
+bind_host_lib:   "{{ bind_host_root }}/lib"
+bind_host_logs:  "{{ bind_host_root }}/logs"
+
+
+# Montages des volume de l hote sur le conteneur
+lxd_dns_devices:
+  etc_bind:
+    type: disk
+    source: "{{ bind_host_etc }}"  
+    path: /etc/bind
+  cache_bind:
+    type: disk
+    source: "{{ bind_host_cache }}"
+    path: /var/cache/bind
+  lib_bind:
+    type: disk
+    source: "{{ bind_host_lib }}"     
+    path: /var/lib/bind
+  log_bind:
+    type: disk
+    source: "{{ bind_host_logs }}"  
+    path: /var/log/bind
+
+# Paramètres LXD complémentaires au besoin
+lxd_dns_config:
+  limits.cpu: "2"
+  limits.memory: "2GB"
+  limits.processes: "unlimited"
+  limits.openfiles: "65535"
+
+  boot.autostart: "true"
+  boot.autorestart: "true"
+  boot.autorestart.delay: "5s"
+
+  security.nesting: "false"
+
+# Paquets à installer dans le conteneur pour DNS (facultatif dans ce rôle)
+dns_packages:
+  - bind9
+  - bind9utils
+  - dnsutils
+  - bind9-doc          # optionnel
+  # - bind9-host       # optionnel, si tu veux l'outil `host`
+
+

@@ -1,0 +1,53 @@
+---
+lxd_dhcp_name: "dhcp"
+lxd_dhcp_release: "ubuntu:24.04"
+lxd_dhcp_autostart: true
+
+# Volumes persistants sur l’hôte
+kea_host_root: "/opt/dhcp"
+
+kea_host_etc: "{{ kea_host_root }}/etc"
+kea_host_lib: "{{ kea_host_root }}/leases"
+kea_host_logs: "{{ kea_host_root }}/logs"
+
+# Montages des volume de l hote sur le conteneur
+lxd_dhcp_devices:
+  etc_kea:
+    type: disk
+    source: "{{ kea_host_etc }}"    
+    path: /etc/kea
+  lib_kea:
+    type: disk
+    source: "{{ kea_host_lib }}"     
+    path: /var/lib/kea
+  log_kea:
+    type: disk
+    source: "{{ kea_host_logs }}"   
+    path: /var/log/kea
+
+# Paramètres LXD complémentaires
+lxd_dhcp_config:
+  limits.cpu: "2"
+  limits.memory: "3GB"
+  limits.processes: "unlimited"
+  limits.openfiles: "65535"
+
+  boot.autostart: "true"
+  boot.autorestart: "true"
+  boot.autorestart.delay: "5s"
+
+  security.nesting: "false"
+
+# Paquets à installer dans le conteneur pour kea
+
+dhcp_packages:
+  - isc-kea-dhcp4-server
+  - isc-kea-dhcp6-server
+  - isc-kea-dhcp-ddns-server
+  - isc-kea-ctrl-agent
+  - isc-kea-admin
+  - isc-kea-hooks
+  - isc-kea-common
+  - curl
+  - jq
+

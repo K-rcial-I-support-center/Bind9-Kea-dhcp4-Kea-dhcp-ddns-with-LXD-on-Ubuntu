@@ -1,0 +1,30 @@
+---
+- name: Installer snapd (si absent)
+  ansible.builtin.package:
+    name: snapd
+    state: present
+
+- name: Installer LXD via Snap
+  community.general.snap:
+    name: lxd
+    state: present
+    channel: latest/stable
+
+- name: Ajouter l'utilisateur ubuntu au groupe lxd
+  ansible.builtin.user:
+    name: ubuntu
+    groups: lxd
+    append: true
+
+- name: Vérifier l'état du démon LXD
+  ansible.builtin.shell: systemctl is-active snap.lxd.daemon || true
+  register: lxd_daemon_active
+  changed_when: false
+
+- name: Initialiser LXD automatiquement (--auto)
+  ansible.builtin.command: lxd init --auto
+  when: lxd_daemon_active.stdout.strip() != "active"
+  register: lxd_init_auto
+  changed_when: lxd_init_auto.rc == 0
+  failed_when: lxd_init_auto.rc not in [0]
+

@@ -1,0 +1,66 @@
+{
+  "Dhcp4": {
+    "interfaces-config": {
+      "interfaces": [ "eth1" ],
+      "service-sockets-max-retries": 5,
+      "service-sockets-require-all": true
+    },
+    "lease-database": {
+      "type": "memfile",
+      "lfc-interval": 60,
+      "persist": true,
+      "name": "/var/lib/kea/kea-leases4.csv"
+    },
+    
+    "option-def": [  
+      { "name": "pxelinux-magic", "code": 208, "type": "binary", "space": "pxelinux" },
+      { "name": "pxelinux-configfile", "code": 209, "type": "string", "space": "pxelinux" },
+      { "name": "pxelinux-pathprefix", "code": 210, "type": "string", "space": "pxelinux" },
+      { "name": "pxelinux-reboottime", "code": 211, "type": "uint32", "space": "pxelinux" },
+      { "name": "vendor-option-128", "code": 128, "type": "string", "space": "dhcp4" },
+      { "name": "vendor-option-129", "code": 129, "type": "string", "space": "dhcp4" },
+    ],
+
+    "valid-lifetime": 4000,
+    "renew-timer": 1000,
+    "rebind-timer": 2000,
+
+    "ddns-send-updates": true,
+    "ddns-update-on-renew": true,
+    "ddns-override-client-update": true,  
+    "ddns-generated-prefix": "host",
+    "ddns-qualifying-suffix": "shq.internal.",
+
+    "dhcp-ddns": {
+      "enable-updates": true,
+      "server-ip": "127.0.0.1",
+      "server-port": 53001,
+      "sender-ip": "127.0.0.1",
+      "max-queue-size": 1024,
+      "ncr-protocol": "UDP",
+      "ncr-format": "JSON"
+    },
+
+    <?include "/etc/kea/192.168.10.conf"?>         
+
+    "control-sockets": [
+      {
+        "socket-type": "http",
+        "socket-address": "0.0.0.0",
+        "socket-port": 8000
+      }
+    ],
+
+    "loggers": [
+      {
+        "name": "kea-dhcp4",
+        "output-options": [
+          { "output": "stdout" },
+          { "output": "/var/log/kea/kea-dhcp4.log" }
+        ],
+        "severity": "DEBUG",
+        "debuglevel": 99
+      }
+    ]
+  }
+}
